@@ -111,6 +111,51 @@ This means you're not locked into one path—you can optimize for your specific 
 
 ---
 
+## 🔄 Understanding Transactions & Queries (Critical Beginners Should Know)
+
+### Transaction Lifecycle (From User to Blockchain)
+
+A transaction goes through these key stages:
+
+1. **Creation** → User creates tx via CLI with flags like `--gas`, `--gas-prices`, `--fees`
+2. **Mempool** → CometBFT's `CheckTx` validates without executing (stateless & stateful checks)
+3. **Consensus** → Proposer includes tx in block, validators reach agreement
+4. **Execution** → `FinalizeBlock` executes tx messages and updates state
+5. **Commit** → State changes finalized when validators agree (2/3+ votes)
+
+**Key Concept**: Gas measures computation resources. You pay `fees = gas_consumed × gas_price`
+
+### Query Lifecycle (Read-only, No Consensus)
+
+Queries are simpler—they don't change state:
+
+1. **Creation** → User requests data via CLI, gRPC, or REST
+2. **Routing** → SDK's `GRPCQueryRouter` finds the right module
+3. **Execution** → Module retrieves data from stores
+4. **Response** → Full-node returns result immediately (no consensus needed)
+
+**Key Point**: Queries are instant because they don't require blockchain agreement
+
+## 💰 Gas and Fees (You Must Understand This)
+
+**Gas** is computational resource metering:
+
+-   Every operation consumes gas (store reads/writes, signatures, computation)
+-   Total fee = `gas_consumed × gas_price_per_unit`
+-   Users set `--gas-prices` or `--fees` flag to incentivize validators to include their tx
+
+**Why it matters**: If you don't pay enough fees, validators won't include your transaction. If you run out of gas during execution, your transaction fails and state changes are reverted.
+
+## 👤 Accounts and Keys (How Identity Works)
+
+Every user has:
+
+-   **Private Key** (secret, signs transactions)
+-   **Public Key** (derived from private key)
+-   **Address** (derived from public key, identifies accounts)
+
+Users can create HD wallets (Hierarchical Deterministic) from a 12-24 word mnemonic, which generates unlimited accounts. Think of it like a master seed that creates many accounts.
+
 ## 🎓 Who Should Use Cosmos SDK?
 
 | Profile                    | Best For?                               |
