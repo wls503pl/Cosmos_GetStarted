@@ -10,7 +10,7 @@ This document explains how the bank module processes transactions in a Cosmos SD
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                   COMPONENT RESPONSIBILITIES              │
+│                   COMPONENT RESPONSIBILITIES             │
 └──────────────────────────────────────────────────────────┘
 
 CLI (minid command)
@@ -19,13 +19,13 @@ CLI (minid command)
 └─ Broadcast to node
 
 ╔═════════════════════════════════════════════════════════════╗
-║  MiniApp (app/app.go) - Your Application Logic             ║
+║  MiniApp (app/app.go) - Your Application Logic              ║
 ╠═════════════════════════════════════════════════════════════╣
-║                                                              ║
+║                                                             ║
 ║  PHASE 1: CheckTx (Validate in Mempool)                     ║
 ║  ├─ AuthKeeper: Verify signature ✓                          ║
 ║  └─ BankKeeper: Check format ✓                              ║
-║                                                              ║
+║                                                             ║
 ║  PHASE 2: DeliverTx (Execute after block consensus)         ║
 ║  ├─ Route to bank module                                    ║
 ║  ├─ BankKeeper.SendCoins()                                  ║
@@ -33,10 +33,10 @@ CLI (minid command)
 ║  │  ├─ Update: sender -amount, receiver +amount             ║
 ║  │  └─ Write updated balances back                          ║
 ║  └─ Emit transfer event                                     ║
-║                                                              ║
+║                                                             ║
 ║  PHASE 3: Commit                                            ║
 ║  └─ Persist all changes to database                         ║
-║                                                              ║
+║                                                             ║
 ╚═════════════════════════════════════════════════════════════╝
 
 CometBFT (Consensus Engine)
@@ -117,7 +117,7 @@ minid tx bank send <from-address> <to-address> 100mini --chain-id demo -y
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│         Bank Transfer Execution Timeline                 │
+│         Bank Transfer Execution Timeline                │
 └─────────────────────────────────────────────────────────┘
 
 ┌─ PHASE 1: CLIENT SIDE (Your Terminal)
