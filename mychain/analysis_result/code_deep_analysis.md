@@ -352,3 +352,415 @@ When the program starts:
 -   **Validation rules:** What constitutes a valid address on this chain
 
 These settings are enforced throughout the entire blockchain lifecycle. Once `SetAddressPrefixes()` is called, the config is sealed and cannot be changed, ensuring consistency.
+
+---
+
+## File3: app/app.go
+
+**Location:** `app/app.go`  
+**Package:** `app`  
+**Purpose:** Define the core MiniApp application structure and initialize all blockchain components (Keepers, modules, and configuration)
+
+---
+
+## Package Declaration & Global Variables
+
+```go
+package app
+
+var DefaultNodeHome string
+
+//go:embed app.yaml
+var AppConfigYAML []byte
+
+var (
+ _ runtime.AppI            = (*MiniApp)(nil)
+ _ servertypes.Application = (*MiniApp)(nil)
+)
+```
+
+### Key Components
+
+1. **`DefaultNodeHome`** - Global variable storing the blockchain data directory (e.g., `~/.minid/`)
+2. **`AppConfigYAML`** - Embedded YAML configuration file baked into the binary
+3. **Interface checks** - Compile-time assertions verifying `MiniApp` implements required interfaces
+
+---
+
+## Imports Organization
+
+The imports are organized in groups:
+
+### Standard Library
+
+```go
+_ "embed"      // File embedding
+"io"           // Input/output operations
+```
+
+### Database
+
+```go
+dbm "github.com/cosmos/cosmos-db"  // Alias: database management
+```
+
+### SDK Core
+
+```go
+"cosmossdk.io/core/appconfig"      // Application configuration loading
+"cosmossdk.io/depinject"           // Dependency injection framework
+"cosmossdk.io/log"                 // Logging utilities
+storetypes "cosmossdk.io/store/types"  // Alias: storage types
+```
+
+### SDK Components
+
+```go
+clienthelpers "cosmossdk.io/client/v2/helpers"  // CLI helpers
+"github.com/cosmos/cosmos-sdk/baseapp"          // Base application framework
+"github.com/cosmos/cosmos-sdk/client"           // Client utilities
+"github.com/cosmos/cosmos-sdk/codec"            // Codec for serialization
+codectypes "github.com/cosmos/cosmos-sdk/codec/types"  // Alias: codec types
+"github.com/cosmos/cosmos-sdk/runtime"          // Runtime utilities
+"github.com/cosmos/cosmos-sdk/server"           // Server commands
+"github.com/cosmos/cosmos-sdk/server/api"       // API server
+"github.com/cosmos/cosmos-sdk/server/config"    // Server configuration
+servertypes "github.com/cosmos/cosmos-sdk/server/types"  // Alias: server types
+"github.com/cosmos/cosmos-sdk/types/module"     // Module interface
+```
+
+### Keeper Imports (with aliases)
+
+```go
+authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+consensuskeeper "github.com/cosmos/cosmos-sdk/x/consensus/keeper"
+distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
+stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+```
+
+### Module Imports (side-effects only)
+
+```go
+_ "github.com/cosmos/cosmos-sdk/x/auth"           // Side-effects: register auth
+_ "github.com/cosmos/cosmos-sdk/x/bank"           // Side-effects: register bank
+_ "github.com/cosmos/cosmos-sdk/x/staking"        // Side-effects: register staking
+_ "github.com/cosmos/cosmos-sdk/x/distribution"   // Side-effects: register distribution
+_ "github.com/cosmos/cosmos-sdk/x/consensus"      // Side-effects: register consensus
+_ "github.com/cosmos/cosmos-sdk/x/mint"           // Side-effects: register mint
+```
+
+---
+
+## MiniApp Structure
+
+```go
+type MiniApp struct {
+ *runtime.App
+ legacyAmino       *codec.LegacyAmino
+ appCodec          codec.Codec
+ txConfig          client.TxConfig
+ interfaceRegistry codectypes.InterfaceRegistry
+
+ // keepers
+ AccountKeeper         authkeeper.AccountKeeper
+ BankKeeper            bankkeeper.Keeper
+ StakingKeeper         *stakingkeeper.Keeper
+ DistrKeeper           distrkeeper.Keeper
+ ConsensusParamsKeeper consensuskeeper.Keeper
+
+ // simulation manager
+ sm *module.SimulationManager
+}
+```
+
+### Field Breakdown
+
+| Field                   | Type                           | Purpose                                                  |
+| ----------------------- | ------------------------------ | -------------------------------------------------------- |
+| `*runtime.App`          | Embedded                       | Inherits base application functionality from SDK         |
+| `legacyAmino`           | `*codec.LegacyAmino`           | Old encoding (deprecated, kept for compatibility)        |
+| `appCodec`              | `codec.Codec`                  | Modern protobuf encoder/decoder                          |
+| `txConfig`              | `client.TxConfig`              | Transaction construction and signing configuration       |
+| `interfaceRegistry`     | `codectypes.InterfaceRegistry` | Message type registry for deserialization                |
+| `AccountKeeper`         | `authkeeper.AccountKeeper`     | Manages user accounts and authentication                 |
+| `BankKeeper`            | `bankkeeper.Keeper`            | Handles balance transfers (used when Alice sends to Bob) |
+| `StakingKeeper`         | `*stakingkeeper.Keeper`        | Manages validator stakes and delegations                 |
+| `DistrKeeper`           | `distrkeeper.Keeper`           | Distributes validator rewards                            |
+| `ConsensusParamsKeeper` | `consensuskeeper.Keeper`       | Manages consensus parameters                             |
+| `sm`                    | `*module.SimulationManager`    | Fuzzy testing and transaction simulation                 |
+
+---
+
+## init() Function
+
+```go
+func init() {
+ var err error
+ clienthelpers.EnvPrefix = "MINI"
+ DefaultNodeHome, err = clienthelpers.GetNodeHomeDirectory(".minid")
+ if err != nil {
+  panic(err)
+ }
+}
+```
+
+**When does it run?**  
+Automatically when the package is imported (before any other code executes).
+
+**What it does:**
+
+1. Sets environment variable prefix to "MINI" for CLI commands
+2. Determines the blockchain data directory (e.g., `~/.minid/`)
+3. Panics if directory cannot be determined
+
+---
+
+## AppConfig() Function
+
+```go
+func AppConfig() depinject.Config {
+ return depinject.Configs(
+  appconfig.LoadYAML(AppConfigYAML),
+  depinject.Supply(
+   &appv1alpha1.Config{},
+   map[string]module.AppModuleBasic{
+    genutiltypes.ModuleName: genutil.NewAppModuleBasic(genutiltypes.DefaultMessageValidator),
+   },
+  ),
+ )
+}
+```
+
+**Purpose:**  
+Returns the dependency injection configuration loaded from embedded `app.yaml`.
+
+**What it does:**
+
+1. **`appconfig.LoadYAML(AppConfigYAML)`** - Loads module definitions, execution order from `app.yaml`
+2. **`depinject.Supply(...)`** - Provides additional configuration and custom module basics
+
+This configuration tells the DI framework what modules to load and how to initialize them.
+
+---
+
+## NewMiniApp() Function
+
+```go
+func NewMiniApp(
+ logger log.Logger,
+ db dbm.DB,
+ traceStore io.Writer,
+ loadLatest bool,
+ appOpts servertypes.AppOptions,
+ baseAppOptions ...func(*baseapp.BaseApp),
+) (*MiniApp, error) {
+ var (
+  app        = &MiniApp{}
+  appBuilder *runtime.AppBuilder
+ )
+
+ if err := depinject.Inject(
+  depinject.Configs(
+   AppConfig(),
+   depinject.Supply(
+    logger,
+    appOpts,
+   ),
+  ),
+  &appBuilder,
+  &app.appCodec,
+  &app.legacyAmino,
+  &app.txConfig,
+  &app.interfaceRegistry,
+  &app.AccountKeeper,
+  &app.BankKeeper,
+  &app.StakingKeeper,
+  &app.DistrKeeper,
+  &app.ConsensusParamsKeeper,
+ ); err != nil {
+  return nil, err
+ }
+
+ app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
+
+ if err := app.RegisterStreamingServices(appOpts, app.kvStoreKeys()); err != nil {
+  return nil, err
+ }
+
+ app.sm = module.NewSimulationManagerFromAppModules(app.ModuleManager.Modules, make(map[string]module.AppModuleSimulation, 0))
+ app.sm.RegisterStoreDecoders()
+
+ if err := app.Load(loadLatest); err != nil {
+  return nil, err
+ }
+
+ return app, nil
+}
+```
+
+### Initialization Sequence
+
+**Step 1: Dependency Injection**
+
+```go
+depinject.Inject(...)
+```
+
+The framework analyzes dependencies and automatically initializes:
+
+-   `appBuilder` - Creates the base application
+-   All Keepers - AccountKeeper, BankKeeper, StakingKeeper, etc.
+-   Codecs and configurations
+
+**Step 2: Build Application**
+
+```go
+app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
+```
+
+-   Creates the BaseApp instance
+-   Mounts all module stores
+-   Connects to database
+
+**Step 3: Register Streaming Services**
+
+```go
+app.RegisterStreamingServices(appOpts, app.kvStoreKeys())
+```
+
+-   Enables event streaming for external systems
+-   Allows state changes to be broadcast in real-time
+
+**Step 4: Initialize Simulation Manager**
+
+```go
+app.sm = module.NewSimulationManagerFromAppModules(...)
+```
+
+-   Sets up fuzzy testing framework
+-   Allows automated transaction generation and testing
+
+**Step 5: Load Latest State**
+
+```go
+app.Load(loadLatest)
+```
+
+-   If `loadLatest=true`: Loads the most recent blockchain state from database
+-   If `loadLatest=false`: Starts fresh (used for genesis)
+
+**Returns:** Fully initialized `*MiniApp` ready to process transactions
+
+---
+
+## Helper Methods
+
+### LegacyAmino()
+
+```go
+func (app *MiniApp) LegacyAmino() *codec.LegacyAmino {
+ return app.legacyAmino
+}
+```
+
+Returns the legacy amino codec (for backward compatibility).
+
+### GetKey()
+
+```go
+func (app *MiniApp) GetKey(storeKey string) *storetypes.KVStoreKey {
+ sk := app.UnsafeFindStoreKey(storeKey)
+ kvStoreKey, ok := sk.(*storetypes.KVStoreKey)
+ if !ok {
+  return nil
+ }
+ return kvStoreKey
+}
+```
+
+Retrieves the storage key for a specific module (e.g., "bank" module's store).
+
+### kvStoreKeys()
+
+```go
+func (app *MiniApp) kvStoreKeys() map[string]*storetypes.KVStoreKey {
+ keys := make(map[string]*storetypes.KVStoreKey)
+ for _, k := range app.GetStoreKeys() {
+  if kv, ok := k.(*storetypes.KVStoreKey); ok {
+   keys[kv.Name()] = kv
+  }
+ }
+ return keys
+}
+```
+
+Collects all module storage keys into a map for easy lookup.
+
+### SimulationManager()
+
+```go
+func (app *MiniApp) SimulationManager() *module.SimulationManager {
+ return app.sm
+}
+```
+
+Returns the simulation manager for testing.
+
+### RegisterAPIRoutes()
+
+```go
+func (app *MiniApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
+ app.App.RegisterAPIRoutes(apiSvr, apiConfig)
+ if err := server.RegisterSwaggerAPI(apiSvr.ClientCtx, apiSvr.Router, apiConfig.Swagger); err != nil {
+  panic(err)
+ }
+}
+```
+
+Registers all module routes with the REST API server and enables Swagger documentation.
+
+---
+
+## Application Lifecycle
+
+```
+Program Start
+   ↓
+1. init() executes
+   ├─ Set environment prefix "MINI"
+   └─ Determine DefaultNodeHome (~/.minid/)
+   ↓
+2. NewMiniApp() called (from cmd/root.go or cmd/commands.go)
+   ├─ Dependency injection initializes all Keepers
+   ├─ BaseApp created and all modules mounted
+   ├─ Streaming services registered
+   ├─ Simulation manager initialized
+   └─ Load latest state from database
+   ↓
+3. CometBFT starts
+   ├─ Node begins consensus
+   ├─ Listens for transactions
+   └─ Calls MiniApp methods (CheckTx, DeliverTx, Commit)
+   ↓
+4. Ready to process transactions
+   └─ When Alice sends to Bob:
+      ├─ CheckTx validates
+      ├─ DeliverTx executes (BankKeeper modifies balances)
+      └─ Commit saves state to database
+```
+
+---
+
+## Summary
+
+`app.go` is the backbone of the blockchain application. It:
+
+1. **Defines MiniApp structure** - Container for all application components
+2. **Manages dependencies** - Uses depinject for automatic initialization
+3. **Orchestrates modules** - Coordinates all blockchain modules (auth, bank, staking, etc.)
+4. **Initializes Keepers** - Creates AccountKeeper, BankKeeper, and other state managers
+5. **Loads configuration** - Reads `app.yaml` for module setup and execution order
+6. **Handles lifecycle** - Manages startup, state loading, and API registration
+
+When `minid start` is executed, `NewMiniApp()` is called to instantiate the application with all its components ready to process blockchain transactions.
